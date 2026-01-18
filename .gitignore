@@ -1,0 +1,19 @@
+# Environment variables (CRITICAL)
+.env
+.env.local
+.env.*.local
+
+# Docker / Persistence
+nexus-data/
+mongodb_data/
+*.log
+
+# OS Metadata
+.DS_Store
+Thumbs.db
+
+# IDE / Editor folders
+.vscode/
+.idea/
+*.swp
+*.swo
