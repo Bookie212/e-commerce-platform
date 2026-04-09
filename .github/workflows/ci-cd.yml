@@ -1,45 +1,190 @@
-name: CI/CD to local Nexus
+name: GitHub Actions Pipeline 
 
 on:
   push:
     branches:
       - master
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build-and-push:
-    runs-on: self-hosted
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - uses: actions/setup-python@v5
         with:
-          driver: docker-container
-          driver-opts: network=host
+          python-version: '3.12'
+          cache: 'pip'
 
-      - name: Log in to Nexus Docker registry
-        uses: docker/login-action@v3
+      - name: Install linter
+        run: pip install ruff
+
+      - name: Run lint
+        run: ruff .
+
+  test:
+    runs-on: ubuntu-latest
+    needs: lint
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: user
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: ecommerce
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v5
         with:
-          registry: localhost:8082
-          username: ${{ secrets.NEXUS_USERNAME }}
-          password: ${{ secrets.NEXUS_PASSWORD }}
+          python-version: '3.12'
+          cache: 'pip'
+
+      - run: pip install -r requirements.txt
+
+      - name: Run tests
+        env:
+          DATABASE_URL: postgresql://user:password@localhost:5433/ecommerce
+        run: pytest tests/ --junitxml=report.xml
+
+      - name: Upload test report
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report
+          path: report.xml
+
+  docker:
+    permissions:
+      contents: read
+      packages: write
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
       
-      - name: Build and push backend image
-        uses: docker/build-push-action@v5
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build and Push
+        uses: docker/build-push-action@v7
         with:
           context: ./backend
+          file: ./backend/Dockerfile
           push: true
-          network: host
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           tags: |
-            localhost:8082/ecommerce-backend:latest
-      
-      - name: Build and push Nginx image
-        uses: docker/build-push-action@v5
+            ${{ secrets.DOCKER_USERNAME }}/myapp:latest
+            ${{ secrets.DOCKER_USERNAME }}/myapp:${{ github.sha }}
+            ghcr.io/${{ github.repository_owner }}/myapp:latest
+            ghcr.io/${{ github.repository_owner }}/myapp:${{ github.sha }}
+
+      - name: Build and Push Nginx
+        uses: docker/build-push-action@v7
         with:
           context: ./nginx
+          file: ./nginx/Dockerfile
           push: true
-          network: host
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           tags: |
-            localhost:8082/ecommerce-nginx:latest
+            ${{ secrets.DOCKER_USERNAME }}/myapp-nginx:latest
+            ${{ secrets.DOCKER_USERNAME }}/myapp-nginx:${{ github.sha }}
+            ghcr.io/${{ github.repository_owner }}/myapp-nginx:latest
+            ghcr.io/${{ github.repository_owner }}/myapp-nginx:${{ github.sha }}
+
+  security-scan:
+    needs: docker
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - name: backend
+            ref: docker.io/${{ secrets.DOCKER_USERNAME }}/myapp:${{ github.sha }}
+          - name: nginx
+            ref: docker.io/${{ secrets.DOCKER_USERNAME }}/myapp-nginx:${{ github.sha }}
+
+
+    steps:
+      - name: Scan ${{ matrix.image.name }}
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          image-ref: ${{ matrix.image.ref }}
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+
+  deploy:
+    permissions:
+      id-token: write  
+      contents: read
+    needs: security-scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v6.1.0
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Update kubeconfig for EKS
+        run: |
+          aws eks update-kubeconfig \
+            --name ${{ secrets.EKS_CLUSTER_NAME }} \
+            --region ${{ secrets.AWS_REGION }}
+
+      - name: Verify cluster connection
+        run: kubectl get nodes
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v5
+
+      - name: Deploy with Helm
+        run: |
+          helm upgrade --install myapp ./helm/myapp \
+            --set backend.image.tag=${{ github.sha }} \
+            --set nginx.image.tag=${{ github.sha }} \
+            --namespace production \
+            --create-namespace \
+            --atomic \
+            --timeout 120s

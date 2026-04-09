@@ -1,12 +1,26 @@
-FROM python:3.12-slim
+#------------BUILDER-------------
+FROM python:3.12 AS builder
 
 WORKDIR /app
 
 COPY requirements.txt .
 
-RUN pip install --no-cache-dir --timeout 120 -r requirements.txt
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 
 COPY app.py .
+
+#---------RUNNER----------------
+FROM python:3.12-slim
+
+WORKDIR /app
+
+COPY --from=builder /install /usr/local
+
+COPY ./app ./app
+
+RUN useradd -m appuser
+
+USER appuser
 
 EXPOSE 8000
 
