@@ -54,7 +54,7 @@ jobs:
           python-version: '3.12'
           cache: 'pip'
 
-      - name: Install dependencies
+      - name: Install test dependencies
         working-directory: ./tests  
         run: pip install -r requirements.txt
 
