@@ -133,9 +133,9 @@ jobs:
       matrix:
         image:
           - name: backend
-            ref: docker.io/${{ secrets.DOCKER_USERNAME }}/myapp:${{ github.sha }}
+            tag: myapp:${{ github.sha }}
           - name: nginx
-            ref: docker.io/${{ secrets.DOCKER_USERNAME }}/myapp-nginx:${{ github.sha }}
+            tag: myapp-nginx:${{ github.sha }}
 
 
     steps:
