@@ -5,12 +5,10 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-
+from app import app, Base, get_db
 
 backend_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(backend_dir))
-
-from app import app, Base, get_db
 
 # Use the DATABASE_URL from environment — your pipeline sets this
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user:password@localhost:5433/ecommerce")
