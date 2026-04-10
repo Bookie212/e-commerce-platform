@@ -33,8 +33,8 @@ def clean_db():
     """Wipe tables before every test so tests don't bleed into each other"""
     yield
     db = TestingSessionLocal()
-    db.execute("DELETE FROM order_items")
-    db.execute("DELETE FROM orders")
-    db.execute("DELETE FROM products")
+    db.execute(text("DELETE FROM order_items"))
+    db.execute(text("DELETE FROM orders"))
+    db.execute(text("DELETE FROM products"))
     db.commit()
     db.close()
