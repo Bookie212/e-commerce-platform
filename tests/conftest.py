@@ -4,7 +4,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 import os
 
-from main import app, Base, get_db
+from app import app, Base, get_db
 
 # Use the DATABASE_URL from environment — your pipeline sets this
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user:password@localhost:5433/ecommerce")
