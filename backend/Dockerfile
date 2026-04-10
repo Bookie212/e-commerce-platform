@@ -16,7 +16,7 @@ WORKDIR /app
 
 COPY --from=builder /install /usr/local
 
-COPY ./app ./app
+COPY app.py .
 
 RUN useradd -m appuser
 
