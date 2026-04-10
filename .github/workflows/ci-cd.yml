@@ -55,7 +55,7 @@ jobs:
           cache: 'pip'
 
       - name: Install test dependencies
-        working-directory: ./tests  
+        working-directory: ./backend
         run: pip install -r requirements.txt
 
       - name: Run tests
