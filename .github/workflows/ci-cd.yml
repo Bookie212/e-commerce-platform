@@ -61,6 +61,7 @@ jobs:
       - name: Run tests
         env:
           DATABASE_URL: postgresql://user:password@localhost:5433/ecommerce
+          PYTHONPATH: .
         run: pytest backend/tests/ --junitxml=report.xml
 
       - name: Upload test report
@@ -144,7 +145,7 @@ jobs:
       - name: Scan ${{ matrix.image.name }}
         uses: aquasecurity/trivy-action@0.33.1
         with:
-          image-ref: ${{ matrix.image.ref }}
+          image-ref: docker.io/${{ secrets.DOCKER_USERNAME }}/${{ matrix.image.tag }}
           format: 'table'
           exit-code: '1'
           ignore-unfixed: true
